@@ -1,680 +1,991 @@
-import streamlit as st
-from streamlit_ace import st_ace
-import pandas as pd
-import io
-import sys
-import datetime
+﻿import datetime
 import os
-import builtins
-import numpy as np
+import tempfile
+
 import matplotlib as mpl
 import matplotlib.font_manager as fm
-from matplotlib.figure import Figure
+import numpy as np
+import pandas as pd
+import streamlit as st
 from fpdf import FPDF
-import math
-import itertools
-import time
+from matplotlib.figure import Figure
+from PIL import Image
 
-# ==========================================
-# 0. Matplotlib 한글 폰트 설정
-# ==========================================
+
+FONT_PATH = os.path.join(os.path.dirname(__file__), "font", "NanumGothic.ttf")
+
 try:
-    font_path = os.path.join(os.path.dirname(__file__), "font", "NanumGothic.ttf")
-    fm.fontManager.addfont(font_path)  
-    font_name = fm.FontProperties(fname=font_path).get_name()
-    mpl.rc('font', family=font_name)   
-    mpl.rc('axes', unicode_minus=False) 
-except Exception as e:
+    fm.fontManager.addfont(FONT_PATH)
+    mpl.rc("font", family=fm.FontProperties(fname=FONT_PATH).get_name())
+    mpl.rc("axes", unicode_minus=False)
+except Exception:
     pass
 
-# ==========================================
-# 1. 고품질 PDF 생성 클래스 (ThemedPDF)
-# ==========================================
-class ThemedPDF(FPDF):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.alias_nb_pages()
-        self.set_auto_page_break(auto=True, margin=15)
-        self._font_family = "Nanum"
-        self.footer_left = ""
-        self.c_primary = (25, 118, 210)  
-        self.c_primary_lt = (227, 242, 253)  
-        self.c_border = (200, 200, 200)
-        self.c_text_muted = (120, 120, 120)
 
-    def header(self):
-        self.set_fill_color(*self.c_primary)
-        self.rect(0, 0, self.w, 22, 'F')
-        self.set_xy(10, 6)
-        self.set_text_color(255, 255, 255)
-        self.set_font(self._font_family, '', 20)
-        self.cell(0, 10, "F.U.T.U.R.E. 프로젝트 3차시 학습 포트폴리오", ln=1, align='C')
-        self.set_text_color(33, 33, 33)
-        self.ln(18)
-
-    def footer(self):
-        self.set_y(-15)
-        self.set_draw_color(*self.c_border)
-        self.set_line_width(0.2)
-        self.line(10, self.get_y(), self.w - 10, self.get_y())
-        self.set_y(-12)
-        self.set_font(self._font_family, '', 9)
-        self.set_text_color(*self.c_text_muted)
-        if self.footer_left:
-            self.cell(0, 8, self.footer_left, 0, 0, 'L')
-        self.cell(0, 8, f"{self.page_no()} / {{nb}}", 0, 0, 'R')
-
-    def h2(self, text):
-        self.set_fill_color(*self.c_primary_lt)
-        self.set_text_color(21, 101, 192)
-        self.set_font(self._font_family, '', 12)
-        self.cell(0, 9, text, ln=1, fill=True)
-        self.ln(2)
-        self.set_text_color(33, 33, 33)
-
-    def p(self, text, size=11, lh=6):
-        self.set_font(self._font_family, '', size)
-        self.multi_cell(0, lh, text)
-        self.ln(3)
-
-    def kv_card(self, title, kv_pairs):
-        self.h2(title)
-        self.set_draw_color(*self.c_border)
-        self.set_line_width(0.3)
-        self.set_font(self._font_family, '', 11)
-        self.set_fill_color(255, 255, 255)
-        col_w = (self.w - 20) / 2  
-        cell_h = 8
-        x0 = 10
-        for i, (k, v) in enumerate(kv_pairs):
-            x = x0 + (i % 2) * col_w
-            if i % 2 == 0 and i > 0:
-                self.ln(cell_h)
-            self.set_x(x)
-            self.set_text_color(120, 120, 120)
-            self.cell(col_w * 0.35, cell_h, str(k), border=1)
-            self.set_text_color(33, 33, 33)
-            self.cell(col_w * 0.65, cell_h, str(v), border=1)
-        if len(kv_pairs) % 2 == 1:
-            self.set_x(x0 + col_w)
-            self.cell(col_w * 0.35, cell_h, "", border=1)
-            self.cell(col_w * 0.65, cell_h, "", border=1)
-        self.ln(cell_h + 2)
-
-def create_portfolio_pdf(student_info, teacher_ans, code_data):
-    pdf = ThemedPDF()
-    try:
-        pdf.add_font('Nanum', '', font_path, uni=True)
-    except:
-        pass 
-    pdf.set_font('Nanum', '', 12)
-    pdf._font_family = "Nanum"   
-    pdf.footer_left = f"{student_info.get('group','')} • {student_info.get('name','')}"
-    pdf.add_page()
-    
-    kvs = [
-        ("모둠명", student_info.get('group', '')),
-        ("학번", student_info.get('id', '')),
-        ("이름", student_info.get('name', '')),
-        ("작성일", datetime.datetime.now().strftime("%Y-%m-%d")),
-    ]
-    pdf.ln(5)  
-    pdf.kv_card("👤 학생 정보", kvs)
-    
-    pdf.h2("🤔 교사의 딥(Deep) 퀘스천")
-    pdf.set_font(pdf._font_family, '', 11)
-    pdf.set_text_color(211, 47, 47) 
-    pdf.multi_cell(0, 6, "Q. 비밀번호를 무작위로 대입해서 푸는 방식(브루트 포스)은 경우의 수가 많아지면 인간과 컴퓨터 모두에게 물리적으로 불가능에 가까워집니다. 그렇다면 알파고와 같은 AI는 우주 원자 수보다 많은 바둑의 경우의 수를 어떻게 전부 계산하지 않고도 최적의 수를 찾아낼 수 있었을까요?")
-    pdf.ln(3)
-    
-    pdf.set_text_color(21, 101, 192) 
-    pdf.cell(0, 8, "▶ 나의 답변", ln=1)
-    pdf.set_text_color(50, 50, 50) 
-    pdf.p(teacher_ans if teacher_ans else "작성된 내용이 없습니다.")
-    
-    pdf.add_page()
-    
-    pdf.h2("💻 나의 파이썬 코딩 실습 결과")
-    for title, code_text, result_text in code_data:
-        pdf.set_font(pdf._font_family, '', 11)
-        pdf.set_text_color(21, 101, 192)
-        pdf.cell(0, 8, f"▶ {title}", ln=1)
-        
-        pdf.set_font(pdf._font_family, '', 10)
-        pdf.set_text_color(50, 50, 50)
-        pdf.set_fill_color(245, 245, 245)
-        pdf.multi_cell(0, 6, code_text if code_text else "작성된 코드가 없습니다.", border=1, fill=True)
-        pdf.ln(2)
-
-        pdf.set_font(pdf._font_family, '', 11)
-        pdf.set_text_color(46, 125, 50)
-        pdf.cell(0, 8, f"🖥️ 실행 결과", ln=1)
-        
-        pdf.set_font(pdf._font_family, '', 10)
-        pdf.set_text_color(50, 50, 50)
-        pdf.set_fill_color(232, 245, 233)
-        pdf.multi_cell(0, 6, result_text if result_text else "실행 결과가 없습니다.", border=1, fill=True)
-        pdf.ln(6)
-    
-    return bytes(pdf.output(dest='S'))
-
-# ==========================================
-# 2. 파이썬 코드 실행 엔진 (과부하 방지 4중 안전장치 적용)
-# ==========================================
-def code_runner(code_input):
-    output_buffer = io.StringIO()
-    result, status = "", "success"
-    fig = None 
-    
-    def custom_print(*args, sep=' ', end='\n', file=None, flush=False):
-        if file is None:
-            output_buffer.write(sep.join(map(str, args)) + end)
-        else:
-            builtins.print(*args, sep=sep, end=end, file=file, flush=flush)
-
-    # 📈 방어막 1: 그래프 크기 제한 (브라우저 마비 방지)
-    def draw_growth_graph(max_n):
-        nonlocal fig
-        if max_n > 50:
-            custom_print(f"⚠️ [경고] n={max_n}은 너무 큽니다! 서버 보호를 위해 그래프는 n=50까지만 그려집니다.")
-            max_n = 50
-            
-        fig = Figure(figsize=(6, 4))
-        ax = fig.subplots()
-        x = np.arange(1, max_n + 1)
-        y = [math.factorial(int(i)) for i in x]
-        
-        ax.plot(x, y, marker='o', color='#d32f2f', linewidth=2, label='n! (팩토리얼)')
-        ax.set_title("경우의 수 폭발 (Combinatorial Explosion)")
-        ax.set_xlabel("데이터 개수 (n)")
-        ax.set_ylabel("경우의 수 (Log scale)")
-        ax.set_yscale('log')
-        ax.grid(True, linestyle='--', alpha=0.6)
-        ax.legend()
-
-    # 🛡️ 방어막 2: math 라이브러리 제한 (초거대 숫자 연산 방지)
-    class SafeMath:
-        pass
-    for k, v in math.__dict__.items():
-        setattr(SafeMath, k, v)
-        
-    def safe_factorial(n):
-        if n > 2000:
-            raise ValueError(f"💥 서버 과부하 방지: {n}!은 너무 큰 숫자입니다. (최대 2000까지만 입력 가능)")
-        return math.factorial(n)
-    SafeMath.factorial = safe_factorial
-
-    # 🛡️ 방어막 3: time 라이브러리 제한 (장난으로 인한 앱 멈춤 방지)
-    class SafeTime:
-        time = time.time
-        @staticmethod
-        def sleep(secs):
-            if secs > 3:
-                raise ValueError(f"💥 서버 대기 방지: time.sleep({secs})은 허용되지 않습니다. (최대 3초까지만 가능)")
-            time.sleep(secs)
-
-    # 🛡️ 방어막 4: itertools 제한 (RAM 메모리 폭발 방지)
-    class SafeItertools:
-        pass
-    for k, v in itertools.__dict__.items():
-        setattr(SafeItertools, k, v)
-        
-    def safe_permutations(iterable, r=None):
-        lst = list(iterable)
-        n = len(lst)
-        r_val = n if r is None else r
-        if math.perm(n, r_val) > 1000000:
-            raise ValueError("💥 메모리 보호: 생성되는 경우의 수가 100만 개를 초과하여 실행을 차단합니다.")
-        return itertools.permutations(lst, r)
-        
-    def safe_combinations(iterable, r):
-        lst = list(iterable)
-        if math.comb(len(lst), r) > 1000000:
-            raise ValueError("💥 메모리 보호: 생성되는 조합의 수가 100만 개를 초과하여 실행을 차단합니다.")
-        return itertools.combinations(lst, r)
-        
-    SafeItertools.permutations = safe_permutations
-    SafeItertools.combinations = safe_combinations
-
-    # ⏳ 최후의 보루: 전체 실행 시간 제한 (while 무한 루프 강제 종료)
-    start_time_exec = time.time()
-    def trace_calls(frame, event, arg):
-        if time.time() - start_time_exec > 2.0: # 2초 초과 시 에러 발생
-            raise TimeoutError("💥 실행 시간 초과! (무한 루프나 너무 긴 연산을 방지하기 위해 2초 만에 강제 종료되었습니다.)")
-        return trace_calls
-
-    safe_builtins = builtins.__dict__.copy()
-    safe_builtins['print'] = custom_print
-    
-    exec_globals = {
-        '__builtins__': safe_builtins,
-        'math': SafeMath,
-        'itertools': SafeItertools,
-        'time': SafeTime,
-        'draw_growth_graph': draw_growth_graph 
-    }
-    
-    sys.settrace(trace_calls) # 🔍 코드 한 줄 한 줄 감시 시작
-    try:
-        exec(code_input, exec_globals)
-        result = output_buffer.getvalue() or "출력된 내용이 없습니다."
-    except Exception as e:
-        result = f"{e.__class__.__name__}: {e}"
-        status = "error"
-    finally:
-        sys.settrace(None) # 감시 종료
-        
-    return result, status, fig
-
-def display_output(result, status, fig):
-    if status == "success":
-        st.markdown(f"```bash\n{result}\n```")
-        if fig is not None:
-            st.pyplot(fig) 
-    else:
-        st.markdown("##### ❌ 실행 중 오류 발생")
-        st.markdown(f"<pre style='color: red; background-color: #ffe6e6; padding: 10px; border-radius: 5px;'>{result}</pre>", unsafe_allow_html=True)
-
-def code_block(problem_number, title, starter_code, prefix="", height=280):
-    key_prefix = f"{prefix}{problem_number}"
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"##### 📥 {title} (코드 입력)")
-        code_input = st_ace(value=starter_code, language='python', theme='github', height=height, key=f"{key_prefix}_editor")
-        if st.button("▶️ 실행", key=f"{key_prefix}_run"):
-            st.session_state[f"{key_prefix}_result"] = code_runner(code_input)
-    with c2:
-        st.markdown("##### 🖥️ 실행 결과")
-        if f"{key_prefix}_result" in st.session_state:
-            res, stat, fig = st.session_state[f"{key_prefix}_result"]
-            display_output(res, stat, fig)
-        else:
-            st.info("실행 버튼을 누르면 결과가 표시됩니다.")
-
-# ==========================================
-# 3. 메인 앱 화면 (UI)
-# ==========================================
-def run():
-    st.header("3DAY - 🔢 경우의 수 폭발과 AI 탐색")
-    st.markdown("**🎯 학습 목표:** 경우의 수(순열과 조합)를 파이썬으로 계산해보고, 데이터가 늘어날 때 계산량이 기하급수적으로 폭발하는 현상을 통해 AI의 효율적인 탐색(Search) 원리를 이해합니다.")
-    st.markdown("<hr style='border: 2px solid #2196F3;'>", unsafe_allow_html=True) 
-    
-    tabs = st.tabs([
-        "1️⃣ [F.U] 문제 발견", 
-        "2️⃣ [T] 수학의 언어", 
-        "3️⃣ [U] AI 활용", 
-        "4️⃣ [R] 결과 해석",
-        "5️⃣ [E] 세상과 연결"
-    ])
-    
-    # ------------------------------------------
-    # 탭 1: 현실 탐색 [문맥화]
-    # ------------------------------------------
-    with tabs[0]:
-        st.success("**[문제 인식 및 숨겨진 데이터 찾기]** 우리 주변의 무수한 선택지와 경우의 수를 발견하고, 모든 것을 다 계산하는 방식의 한계를 탐색합니다.")
-        st.markdown("---")
-        
-        st.markdown("#### 📌 [문제 제기] 🔓 스마트폰 비밀번호와 우주 배달 로봇")
-        st.write("스마트폰의 4자리 비밀번호를 잊어버렸을 때, 0000부터 9999까지 하나씩 다 눌러보는 방식을 **브루트 포스(Brute-Force, 무차별 대입)**라고 합니다.")
-        
-        st.info("""💡 **생각해 볼 문제:**
-1. **비밀번호:** 4자리 숫자를 모두 눌러보려면 최대 몇 번을 시도해야 할까요? 만약 영문자와 특수문자까지 섞어 10자리라면 어떨까요?
-2. **배달 로봇 (외판원 순회 문제):** 10개의 집을 방문해 택배를 배달해야 하는 로봇이 있습니다. 어떤 순서로 방문해야 가장 짧은 거리를 이동할 수 있을까요?""")
-        
-        st.write("방문해야 할 집이 10곳이라면, 로봇이 고려해야 할 경로의 순서(경우의 수)는 자그마치 **362만 8,800가지($10!$)**입니다. 집이 20곳으로 늘어나면 컴퓨터조차 우주의 나이보다 긴 시간이 필요해집니다.")
-        
-        hypothesis = st.text_input("💡 나의 가설 세워보기 (알파고 같은 AI는 이 엄청난 경우의 수를 어떻게 다 계산하고 정답을 찾을까?)", placeholder="나의 생각을 자유롭게 적어보세요.", key="d3_hypothesis")
-        if st.button("🔍 가설 확인", key="d3_btn_hypo"):
-            if hypothesis.strip() == "":
-                st.warning("틀려도 괜찮아요! 먼저 자신의 생각을 적어주세요.")
-            else:
-                st.success(f"**✅ 흥미로운 접근입니다!** '{hypothesis}'라고 생각했군요.")
-                st.divider()
-                st.markdown("""
-                #### 🔓 알고리즘의 핵심: '다 해보기'의 한계와 가지치기(Pruning)
-                * 인간은 무수한 경우의 수 앞에서 직관을 사용해 **'안 될 것 같은 길'**은 애초에 생각하지 않습니다.
-                * AI 역시 모든 것을 다 계산하지 않습니다. **가지치기(Pruning)**나 **휴리스틱(Heuristic)** 기법을 사용하여, 정답이 아닐 확률이 높은 경우의 수는 아예 탐색 과정에서 잘라내 버립니다.
-                """)
-
-    # ------------------------------------------
-    # 탭 2: 수학적 구조화 [수평적 수학화]
-    # ------------------------------------------
-    with tabs[1]:
-        st.success("**[현상을 수학의 언어로 바꾸기]** 파이썬의 `math`와 `itertools` 라이브러리를 활용하여 순열, 조합, 팩토리얼을 코드로 계산해 봅니다.")
-        st.markdown("---")
-
-        st.markdown("#### 📌 [코딩] 경우의 수를 구하는 파이썬 도구들")
-        st.write("파이썬은 수학 계산에 특화된 유용한 라이브러리를 기본 제공합니다.")
-        st.code("""
-import math
-import itertools
-
-# 1. 팩토리얼 (n!): math.factorial(n)
-# 2. 순열 (nPr): itertools.permutations(리스트, r)
-# 3. 조합 (nCr): itertools.combinations(리스트, r)
-        """)
-        
-        st.markdown("""###### 💻 [예제 1] 팩토리얼과 순열 계산기""")
-        st.write("A, B, C 세 명의 학생을 한 줄로 세우는 경우의 수($3!$)와, 5명 중 2명을 뽑아 반장/부반장으로 앉히는 경우의 수($_{5}P_{2}$)를 구해봅시다.")
-        
-        starter_ex1 = """import math
-import itertools
-
-# 1. 3명을 한 줄로 세우는 경우의 수 (3!)
-fact_3 = math.factorial(3)
-print("3! 의 값:", fact_3)
-
-# 2. 5명 중 2명을 뽑아 순서대로 나열 (순열)
-students = ['A', 'B', 'C', 'D', 'E']
-perm = list(itertools.permutations(students, 2))
-
-print(f"5명 중 2명을 뽑는 경우의 수: {len(perm)}가지")
-print("모든 경우:", perm)
-"""
-        code_block("ex1", "순열과 팩토리얼 연습장", starter_ex1, prefix="d3_", height=300)
-        
-        st.divider()
-
-        st.markdown("""###### 💻 [문제 1] 아이스크림 조합(Combination) 구하기""")
-        st.write("베스킨라빈스에 31가지 맛이 있습니다. 이 중 **순서에 상관없이 3가지 맛**을 고르는(파인트) 경우의 수는 총 몇 가지일까요? (조합 $_{31}C_{3}$)")
-        with st.expander("💡 힌트 보기"):
-            st.markdown("1부터 31까지의 숫자를 리스트로 만들거나, 단순히 식을 계산할 수도 있습니다. `itertools.combinations(range(1, 32), 3)`를 사용한 후 `len()`으로 길이를 구해보세요.")
-        with st.expander("💡 정답 보기"):
-            st.code("""import itertools\n\n# 1~31의 숫자로 이루어진 범위에서 3개 고르기\nice_cream = range(1, 32)\ncomb = list(itertools.combinations(ice_cream, 3))\n\nprint("31가지 중 3가지를 고르는 경우의 수:", len(comb))""", language="python")
-
-        starter_q1 = """import itertools
-
-ice_cream = range(1, 32)
-# 아래에 itertools.combinations를 사용하여 조합을 구하세요.
-comb = 
-
-print("31가지 중 3가지를 고르는 경우의 수:", len(comb))
-"""
-        code_block("q1", "조합 구하기 (문제 1)", starter_q1, prefix="d3_", height=210)
-        
-
-    # ------------------------------------------
-    # 탭 3: 컴퓨팅 도구 활용 [수직적 수학화]
-    # ------------------------------------------
-    with tabs[2]:
-        st.success("**[AI 도구로 시뮬레이션하기]** 데이터가 늘어날 때 컴퓨터가 연산하는 데 걸리는 시간(Time)을 측정하고, 경우의 수 폭발을 시각적으로 확인합니다.")
-        st.markdown("---")
-
-        st.markdown("#### 📌 [도구적 질문] 컴퓨터는 무조건 빠를까?")
-        st.write("파이썬의 `time` 모듈을 사용하면 코드 실행에 걸린 시간을 측정할 수 있습니다. 10개의 도시를 방문하는 최단 경로를 브루트 포스(모두 탐색)로 찾으려면 시간이 얼마나 걸릴까요?")
-
-        st.info("💡 **특별 기능 안내:** 코드 창 마지막에 `draw_growth_graph(n)` 함수를 적으면, 1부터 n까지의 팩토리얼 증가량을 보여주는 지수 그래프를 그려줍니다!")
-
-        st.markdown("""###### 💻 [예제 2] 연산 시간 측정하기 및 그래프 출력""")
-        st.write("도시의 개수(n)가 10개일 때, 모든 경로의 수($10!$)를 계산하는 데 걸리는 시간과 경우의 수 증가 그래프를 확인해 봅시다.")
-        
-        starter_ex2 = """import time
-import math
-
-n = 10 # 도시의 개수
-
-# 1. 시작 시간 측정
-start_time = time.time()
-
-# 2. 10! 계산 (모든 경로 탐색을 가정)
-total_cases = math.factorial(n)
-
-# 3. 종료 시간 측정
-end_time = time.time()
-
-print(f"{n}개 도시 방문 경로 수: {total_cases}가지")
-print(f"계산에 걸린 시간: {end_time - start_time:.6f} 초")
-
-# 경우의 수 폭발 그래프 그리기 (n=10)
-draw_growth_graph(n)
-"""
-        code_block("ex2", "연산 시간과 폭발 그래프 (예제 2)", starter_ex2, prefix="d3_", height=350)
-
-        st.divider()
-
-        st.markdown("""###### 💻 [문제 2] 브루트 포스 한계 체험하기""")
-        st.write("위 예제에서 도시의 개수 `n`을 **10에서 15, 그리고 20으로** 늘려보세요. 20개일 때 경우의 수는 몇 자리 숫자가 되나요? 컴퓨터가 순식간에 계산할 수 있는 범위를 넘어서는지 확인해 봅시다.")
-        
-        starter_q3 = """import math
-
-# 도시의 개수 n을 15, 20으로 변경하며 실행해보세요.
-n = 20
-
-total_cases = math.factorial(n)
-print(f"{n}개 도시 방문 경로 수: {total_cases}가지")
-
-# 숫자가 너무 길어서 길이를 재봅시다.
-digit_length = len(str(total_cases))
-print(f"이 숫자는 무려 {digit_length}자리 숫자입니다!")
-
-# 그래프도 n에 맞게 그려보세요.
-draw_growth_graph(n)
-"""
-        code_block("q3", "한계 돌파 시뮬레이션 (문제 2)", starter_q3, prefix="d3_", height=280)
-
-    # ------------------------------------------
-    # 탭 4: 적용 및 비판적 성찰 [응용적 수학화 1]
-    # ------------------------------------------
-    with tabs[3]:
-        st.success("**[결과의 의미와 한계 고민하기]** 모든 것을 다 탐색하는 방식의 한계를 깨달았다면, 어떻게 '똑똑하게' 정답을 찾을 수 있을지 나만의 알고리즘을 구상해 보는 단계입니다.")
-        st.markdown("---")
-        
-        st.markdown("#### 📌 [문제 3] 수준별 종합 도전")
-        st.write("배운 내용을 바탕으로 탐색 알고리즘을 만들어 봅시다.")
-        
-        level = st.radio("자신의 실력에 맞는 난이도를 선택하세요:", 
-                         ("🌱 하 (비밀번호 맞추기)", "🌿 중 (알파벳 암호 해독)", "🌳 상 (탐욕(Greedy) 알고리즘 기초)"), 
-                         horizontal=True, key="d3_radio")
-        
-        if "하" in level:
-            st.info("**[기초]** 0000부터 9999까지 4자리 비밀번호 중, 정답 비밀번호 '7777'을 찾을 때까지 몇 번 시도해야 하는지 반복문(`for`)으로 찾아보세요.")
-            st.write("*(힌트: `range(10000)`을 사용하세요.)*")
-            st_code = """target_pw = 7777
-attempts = 0
-
-for i in range(10000):
-    attempts += 1
-    if i == target_pw:
-        print(f"찾았습니다! 비밀번호는 {i}입니다.")
-        print(f"총 {attempts}번 시도했습니다.")
-        break  # 정답을 찾으면 반복문을 탈출!
-"""
-        elif "중" in level:
-            st.info("**[응용]** 영문 소문자 a, b, c 세 개로 이루어진 3자리 암호(예: abc, cba 등)를 `itertools.product` (중복 순열)를 이용해 모두 생성하고, 그 중 'cab'를 찾는 코드를 작성하세요.")
-            st_code = """import itertools
-
-chars = ['a', 'b', 'c']
-# chars에서 3개를 뽑아 중복 순열 생성
-passwords = list(itertools.product(chars, repeat=3))
-print("생성된 총 암호 개수:", len(passwords))
-
-target = ('c', 'a', 'b')
-
-for count, pw in enumerate(passwords, 1):
-    if pw == target:
-        print(f"{count}번째 시도만에 암호 {pw}를 찾았습니다!")
-        break
-"""
-        else:
-            st.info("**[심화 종합]** 10개의 도시를 모두 탐색($10!$)하는 대신, '현재 위치에서 가장 가까운 도시를 다음 목적지로 선택'하는 휴리스틱 기법인 **탐욕(Greedy) 알고리즘**의 개념을 코드로 간단히 구현해 보세요.")
-            st_code = """# A에서 출발하여 모든 도시를 방문해야 합니다.
-# (모든 경로를 다 구하지 않고, 가장 거리가 짧은 곳만 쫓아가는 방식)
-cities = ['A', 'B', 'C', 'D']
-# 현재 도시에서 다른 도시까지의 거리 (임의 설정)
-distances = {
-    'A': {'B': 10, 'C': 15, 'D': 20},
-    'B': {'A': 10, 'C': 35, 'D': 25},
-    'C': {'A': 15, 'B': 35, 'D': 30},
-    'D': {'A': 20, 'B': 25, 'C': 30}
+DEFAULT_CHARACTER = "마리오"
+PALETTE = {
+    0: (245, 248, 255),
+    1: (210, 60, 60),
+    2: (255, 220, 180),
+    3: (120, 80, 40),
+    4: (70, 110, 220),
+    5: (245, 215, 70),
+    6: (35, 35, 35),
+    7: (244, 143, 177),
+    8: (255, 255, 255),
+    9: (156, 108, 196),
+    10: (255, 167, 38),
+    11: (129, 199, 132),
+    12: (79, 195, 247),
 }
 
-current = 'A'
-visited = [current]
+CHARACTERS = {
+    "마리오": {
+        "note": "기본 캐릭터입니다. 모자, 얼굴, 옷 색이 뚜렷해서 RGB 읽기 좋습니다.",
+        "pattern": np.array([[0,0,1,1,1,1,0,0],[0,1,1,1,1,1,1,0],[0,0,3,2,2,3,0,0],[0,3,2,2,2,2,3,0],[0,0,1,4,4,1,0,0],[0,1,4,5,5,4,1,0],[0,3,4,4,4,4,3,0],[0,0,3,0,0,3,0,0]], dtype=int),
+    },
+    "커비": {
+        "note": "둥근 실루엣이 분명해서 8x8에서도 가장 안정적으로 보이는 캐릭터입니다.",
+        "pattern": np.array([[0,0,7,7,7,7,0,0],[0,7,7,7,7,7,7,0],[7,7,7,7,7,7,7,7],[7,7,6,7,7,6,7,7],[7,7,7,1,1,7,7,7],[7,7,7,7,7,7,7,7],[0,1,7,7,7,7,1,0],[0,0,1,0,0,1,0,0]], dtype=int),
+    },
+    "팩맨 유령": {
+        "note": "실루엣과 눈이 단순해서 필터로 선과 경계를 찾는 활동에 특히 잘 어울립니다.",
+        "pattern": np.array([[0,0,12,12,12,12,0,0],[0,12,12,12,12,12,12,0],[12,12,8,6,8,6,12,12],[12,12,8,6,8,6,12,12],[12,12,12,12,12,12,12,12],[12,12,12,12,12,12,12,12],[12,12,12,12,12,12,12,12],[12,0,12,0,12,0,12,0]], dtype=int),
+    },
+    "피카츄": {
+        "note": "노란색 중심 캐릭터라 밝기 조절과 필터 반응을 직관적으로 볼 수 있습니다.",
+        "pattern": np.array([[6,5,0,0,0,0,5,6],[6,5,5,0,0,5,5,6],[0,5,5,5,5,5,5,0],[5,5,6,5,5,6,5,5],[5,5,5,1,1,5,5,5],[0,5,5,5,5,5,5,0],[0,3,5,5,5,5,3,0],[0,0,3,0,0,3,0,0]], dtype=int),
+    },
+}
 
-# 아직 3개의 도시가 남았습니다.
-for _ in range(3):
-    next_city = None
-    min_dist = 999
-    
-    # 현재 도시와 연결된 길 중에서 안 가본 곳 중 가장 짧은 길 선택
-    for neighbor, dist in distances[current].items():
-        if neighbor not in visited and dist < min_dist:
-            min_dist = dist
-            next_city = neighbor
-            
-    visited.append(next_city)
-    current = next_city
+BINARY_PATTERNS = {
+    "계단": np.array(
+        [
+            [1, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0, 0],
+            [1, 1, 1, 0, 0, 0],
+            [1, 1, 1, 1, 0, 0],
+            [1, 1, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1, 1],
+        ],
+        dtype=int,
+    ),
+    "체스판": np.array(
+        [[(row + col) % 2 for col in range(6)] for row in range(6)],
+        dtype=int,
+    ),
+}
 
-print("AI가 찾은 탐욕적 경로:", visited)
-print("이 방식은 계산은 매우 빠르지만, 무조건 '최적의 해'를 보장하지는 않는 한계가 있습니다.")
-"""
-        if st.session_state.get("d3_q4_level") != level:
-            st.session_state["d3_q4_level"] = level
-            if "d3_q4_editor" in st.session_state:
-                del st.session_state["d3_q4_editor"] 
-            if "d3_q4_result" in st.session_state:
-                del st.session_state["d3_q4_result"]
+FACE_PHOTO_PATH = os.path.join(os.path.dirname(__file__), "image", "face_grid_source.png")
+RESAMPLE_BILINEAR = getattr(Image, "Resampling", Image).BILINEAR
 
-        if "하" in level:
-            level_key = "ha"
-        elif "중" in level:
-            level_key = "jung"
-        else:
-            level_key = "sang"
-            
-        code_block("q4", f"도전 코드 ({level[:2]})", st_code, prefix=f"d3_{level_key}_", height=320)
+PORT_URLS = {"1": "https://padlet.com/ps0andd/p_1", "2": "https://padlet.com/ps0andd/p_2", "5": "https://padlet.com/ps0andd/p_5", "6": "https://padlet.com/ps0andd/p_6"}
+QA_URLS = {"1": "https://padlet.com/ps0andd/q_1", "2": "https://padlet.com/ps0andd/q_2", "5": "https://padlet.com/ps0andd/q_5", "6": "https://padlet.com/ps0andd/q_6"}
+GALLERY_URLS = {"1": "https://padlet.com/ps0andd/g_1", "2": "https://padlet.com/ps0andd/g_2", "5": "https://padlet.com/ps0andd/g_5", "6": "https://padlet.com/ps0andd/g_6"}
 
-    # ------------------------------------------
-    # 탭 5: 세상 연결 [응용적 수학화 2]
-    # ------------------------------------------
-    with tabs[4]:
-        st.success("**[우리의 삶과 사회로 연결하기]** 방대한 경우의 수와 AI의 탐색 한계를 고려할 때, 우리는 AI 기술을 사회에 어떻게 적용하고 활용해야 할지 고민해 봅니다.")
-        st.markdown("---")
-        
-        st.markdown("#### 📌 1. 학생 정보 입력")
-        col_info1, col_info2, col_info3 = st.columns(3)
-        with col_info1:
-            group_name = st.text_input("모둠 이름 (예: 1모둠)", key="d3_group")
-        with col_info2:
-            stu_id = st.text_input("학번 (예: 10101)", max_chars=5, key="d3_id")
-        with col_info3:
-            stu_name = st.text_input("이름 (예: 홍길동)", key="d3_name")
 
-        st.markdown("---")
+def rgb_from_pattern(pattern):
+    image = np.zeros((pattern.shape[0], pattern.shape[1], 3), dtype=np.uint8)
+    for index, color in PALETTE.items():
+        image[pattern == index] = color
+    return image
 
-        st.markdown("#### 📌 2. 나의 생각 쓰기 및 코드 포트폴리오 저장")
-        st.info("🔥 **교사의 심화 질문(Deep Question):**\n\n비밀번호를 무작위로 대입해서 푸는 방식(브루트 포스)은 경우의 수가 많아지면 물리적으로 불가능해집니다. 그렇다면 알파고와 같은 AI는 우주 원자 수보다 많은 바둑의 경우의 수를 어떻게 전부 계산하지 않고도 이길 수 있었을까요? 오늘 배운 '경우의 수 폭발'과 연관 지어 생각해보세요.")
-        
-        teacher_ans = st.text_area("위 질문에 대한 나만의 답을 논리적으로 작성해 보세요.", height=100, key="d3_teacher_ans")
 
-        if group_name and stu_id and stu_name and teacher_ans:
-            if len(stu_id) >= 3:
-                class_num = stu_id[2]
-                valid_classes = ["1", "2", "5", "6"]
-                
-                if class_num in valid_classes:
-                    st.success("✅ 학습 포트폴리오가 완성되었습니다! 아래 버튼을 눌러 그동안 작성한 코드와 함께 PDF로 저장하세요.")
-                    
-                    if "하" in level:
-                        level_key = "ha"
-                    elif "중" in level:
-                        level_key = "jung"
-                    else:
-                        level_key = "sang"
-                        
-                    code_sections = [
-                        ("예제 1. 팩토리얼과 순열", "d3_ex1"),
-                        ("문제 1. 아이스크림 조합 구하기", "d3_q1"),
-                        ("예제 2. 연산 시간과 폭발 그래프", "d3_ex2"),
-                        ("문제 2. 브루트 포스 한계 체험", "d3_q3"),
-                        ("문제 3. 수준별 종합 도전", f"d3_{level_key}_q4")
-                    ]
-                    
-                    code_data = []
-                    for title, prefix in code_sections:
-                        code_text = st.session_state.get(f"{prefix}_editor", "")
-                        res_tuple = st.session_state.get(f"{prefix}_result", ("", "", None))
-                        result_text = res_tuple[0] if res_tuple else ""
-                        code_data.append((title, code_text, result_text))
-                    
-                    student_info = {"group": group_name, "id": stu_id, "name": stu_name}
-                    pdf_bytes = create_portfolio_pdf(student_info, teacher_ans, code_data)
-                    
-                    st.download_button(
-                        label="⬇️ 📄 나의 파이썬 코드 포트폴리오 저장하기 (PDF)",
-                        data=pdf_bytes,
-                        file_name=f"{stu_id}_{stu_name}_3차시_코드포트폴리오.pdf",
-                        mime="application/pdf",
-                        key="d3_pdf_btn"
-                    )
+def face_grid_image(size=20):
+    if os.path.exists(FACE_PHOTO_PATH):
+        image = Image.open(FACE_PHOTO_PATH).convert("RGB")
+        image = image.resize((size, size), RESAMPLE_BILINEAR)
+        return np.array(image, dtype=np.uint8)
 
-                    portfolio_urls = {
-                        "1": "https://padlet.com/ps0andd/p_1",
-                        "2": "https://padlet.com/ps0andd/p_2",
-                        "5": "https://padlet.com/ps0andd/p_5",
-                        "6": "https://padlet.com/ps0andd/p_6",
-                    }
-                    padlet_portfolio_url = portfolio_urls.get(class_num, "https://padlet.com/")
+    fallback = np.full((size, size, 3), 240, dtype=np.uint8)
+    fallback[size // 4 : size - size // 4, size // 4 : size - size // 4] = (245, 210, 190)
+    return fallback
 
-                    st.info(f"📌 **[미션 1]** 방금 다운로드한 **PDF 파일**을 아래 '{class_num}반 포트폴리오 갤러리'에 업로드해 주세요!")
-                    st.markdown(
-                        f"""<a href="{padlet_portfolio_url}" target="_blank" 
-                            style="display: inline-block; padding: 10px 20px; background: linear-gradient(90deg, #43a047 0%, #66bb6a 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-top: 5px;">
-                            ☁️ {class_num}반 포트폴리오 패들렛으로 이동하기
-                        </a>""", unsafe_allow_html=True
-                    )
+
+def current_character():
+    selected = st.session_state.get("i3_character", DEFAULT_CHARACTER)
+    if selected not in CHARACTERS:
+        st.session_state["i3_character"] = DEFAULT_CHARACTER
+        return DEFAULT_CHARACTER
+    return selected
+
+
+def base_image(name=None):
+    return rgb_from_pattern(CHARACTERS[name or current_character()]["pattern"])
+
+
+def df_from(array):
+    return pd.DataFrame(array.astype(int), index=range(1, array.shape[0] + 1), columns=range(1, array.shape[1] + 1))
+
+
+def ensure_state():
+    st.session_state.setdefault("i3_character", DEFAULT_CHARACTER)
+    current_character()
+    st.session_state.setdefault("i3_binary_shape", "계단")
+    if st.session_state.get("i3_binary_shape") not in BINARY_PATTERNS:
+        st.session_state["i3_binary_shape"] = "계단"
+    st.session_state.setdefault("i3_binary_editor_version", 0)
+    st.session_state.setdefault("i3_binary_show_values", False)
+    if (
+        "i3_binary_grid" not in st.session_state
+        or st.session_state.get("i3_binary_shape_applied") != st.session_state.get("i3_binary_shape", "계단")
+    ):
+        set_binary_grid(BINARY_PATTERNS[st.session_state.get("i3_binary_shape", "계단")].copy())
+        st.session_state["i3_binary_shape_applied"] = st.session_state.get("i3_binary_shape", "계단")
+    st.session_state.setdefault("i3_gray_show_matrix", False)
+    st.session_state.setdefault("i3_social_topic", "환경과 기후")
+    st.session_state.setdefault("i3_social_question_prompt", "")
+    st.session_state.setdefault("i3_social_image_thought", "")
+    st.session_state.setdefault("i3_social_image_symbol_1", "")
+    st.session_state.setdefault("i3_social_image_symbol_2", "")
+    st.session_state.setdefault("i3_generated_prompt", "")
+    for idx in range(1, 5):
+        st.session_state.setdefault(f"i3_saved_{idx}", "")
+        st.session_state.setdefault(f"i3_saved_time_{idx}", "")
+        st.session_state.setdefault(f"i3_saved_detail_{idx}", {})
+
+
+def to_gray(image):
+    return np.round(0.299 * image[:, :, 0] + 0.587 * image[:, :, 1] + 0.114 * image[:, :, 2]).astype(float)
+
+
+def draw_image(image, title, cmap=None, show_values=False, value_range=None, fig_size=(4.0, 4.0), value_fontsize=8):
+    fig = Figure(figsize=fig_size)
+    ax = fig.subplots()
+    plot_min, plot_max = (0, 255) if value_range is None else value_range
+    if cmap:
+        ax.imshow(image, cmap=cmap, interpolation="nearest", vmin=plot_min, vmax=plot_max)
+    else:
+        ax.imshow(image, interpolation="nearest")
+    ax.set_title(title)
+    ax.set_xticks(range(image.shape[1]))
+    ax.set_yticks(range(image.shape[0]))
+    ax.set_xticklabels(range(1, image.shape[1] + 1))
+    ax.set_yticklabels(range(1, image.shape[0] + 1))
+    ax.set_xticks(np.arange(-0.5, image.shape[1], 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, image.shape[0], 1), minor=True)
+    ax.grid(which="minor", color="white", linewidth=1.0)
+    if show_values:
+        for row in range(image.shape[0]):
+            for col in range(image.shape[1]):
+                val = int(image[row, col])
+                if plot_max == plot_min:
+                    brightness = 0
                 else:
-                    st.error("❌ **오류:** 담당 학급(1, 2, 5, 6반)의 학번이 아닙니다. 학번을 다시 확인해 주세요.")
+                    brightness = (float(image[row, col]) - plot_min) / (plot_max - plot_min) * 255
+                ax.text(col, row, str(val), ha="center", va="center", fontsize=value_fontsize, color="white" if brightness > 145 else "black")
+    fig.tight_layout()
+    return fig
+def apply_local_style():
+    st.markdown(
+        """
+        <style>
+        .block-container {
+            padding-top: 1.8rem;
+            padding-bottom: 2rem;
+        }
+        div[data-baseweb="tab-list"] {
+            gap: 0.35rem;
+        }
+        div[data-baseweb="tab"] {
+            background: #f4f8fc;
+            border-radius: 0.8rem;
+            padding: 0.45rem 0.9rem;
+            border: 1px solid #dbe7f3;
+        }
+        div[data-baseweb="tab"][aria-selected="true"] {
+            background: #e8f3ff;
+            border-color: #90caf9;
+        }
+        [data-testid="stDataFrame"] {
+            border: 1px solid #e5eef7;
+            border-radius: 0.75rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def pretty_title(text, color1, color2):
+    return f"""
+    <div style='
+        background: linear-gradient(90deg, {color1} 0%, {color2} 100%);
+        border-radius: 18px;
+        box-shadow: 0 2px 8px 0 rgba(33,150,243,0.06);
+        padding: 4px 18px 0px 18px;
+        margin-bottom: 10px;'>
+        <h4 style='margin-top:0;'><b>{text}</b></h4>
+    </div>
+    """
+
+
+def page_banner(title, description):
+    st.markdown(
+        f"""
+        <div style="
+            background: linear-gradient(135deg, #e3f2fd 0%, #d1c4e9 100%);
+            border-radius: 22px;
+            padding: 22px 24px;
+            box-shadow: 0 8px 20px rgba(33, 150, 243, 0.10);
+            border: 1px solid #dbe7f3;
+            margin-bottom: 14px;
+        ">
+            <div style="font-size:0.9rem; font-weight:700; color:#5e35b1; margin-bottom:8px;">F.U.T.U.R.E. 프로젝트 3DAY</div>
+            <div style="font-size:1.9rem; font-weight:800; color:#1f2937; margin-bottom:8px;">{title}</div>
+            <div style="font-size:1rem; line-height:1.7; color:#37474f;">{description}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def stage_intro(title, description, question, color1="#e8f5e9", color2="#c8e6c9"):
+    st.markdown(
+        f"""
+        <div style="
+            background: linear-gradient(135deg, {color1} 0%, {color2} 100%);
+            border-radius: 18px;
+            padding: 18px 20px;
+            border: 1px solid rgba(0,0,0,0.06);
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.06);
+            margin-bottom: 12px;
+        ">
+            <div style="font-size:1.05rem; font-weight:800; color:#1f2937; margin-bottom:8px;">{title}</div>
+            <div style="font-size:0.97rem; line-height:1.7; color:#37474f; margin-bottom:12px;">{description}</div>
+            <div style="
+                background: rgba(255,255,255,0.72);
+                border-radius: 12px;
+                padding: 10px 12px;
+                border: 1px solid rgba(255,255,255,0.85);
+                color:#37474f;
+                line-height:1.6;
+            ">
+                <b>핵심 탐구 질문</b><br>{question}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_value_card(item):
+    title = item.get("title", "")
+    value = item.get("value", "")
+    detail = item.get("detail", "")
+    bg = item.get("bg", "#ffffff")
+    border = item.get("border", "#dbe7f3")
+    st.markdown(
+        f"""
+        <div style="
+            height:100%;
+            padding:14px 16px;
+            border-radius:16px;
+            background:{bg};
+            border:1px solid {border};
+            box-shadow:0 2px 8px rgba(33, 150, 243, 0.08);
+            margin-bottom:8px;
+        ">
+            <div style="font-size:0.92rem; color:#546e7a; margin-bottom:6px; font-weight:600;">{title}</div>
+            <div style="font-size:1.25rem; color:#263238; font-weight:700; margin-bottom:4px;">{value}</div>
+            <div style="font-size:0.86rem; color:#607d8b; line-height:1.5;">{detail}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_value_cards(items, columns=1):
+    if columns <= 1:
+        for item in items:
+            _render_value_card(item)
+        return
+
+    for start in range(0, len(items), columns):
+        row_items = items[start:start + columns]
+        row_cols = st.columns(columns)
+        for col, item in zip(row_cols, row_items):
+            with col:
+                _render_value_card(item)
+        for col in row_cols[len(row_items):]:
+            with col:
+                st.empty()
+
+
+def binary_grid_text(grid):
+    return " / ".join("".join(str(int(value)) for value in row) for row in grid)
+
+
+def matrix_text(grid):
+    return " / ".join(",".join(str(int(value)) for value in row) for row in grid)
+
+
+def binary_matrix_frame(grid):
+    return pd.DataFrame(
+        grid.astype(int),
+        index=range(1, grid.shape[0] + 1),
+        columns=range(1, grid.shape[1] + 1),
+    )
+
+
+def sanitize_binary_frame(frame):
+    df = pd.DataFrame(frame).apply(pd.to_numeric, errors="coerce").fillna(0)
+    df = df.clip(0, 1).round().astype(int)
+    df.index = range(1, df.shape[0] + 1)
+    df.columns = range(1, df.shape[1] + 1)
+    return df
+
+
+def set_binary_grid(grid, refresh_editor=False):
+    arr = np.array(grid, dtype=int)
+    arr = np.clip(arr, 0, 1)
+    st.session_state["i3_binary_grid"] = arr
+    if refresh_editor:
+        st.session_state["i3_binary_editor_version"] = int(st.session_state.get("i3_binary_editor_version", 0)) + 1
+
+
+def character_gray_matrix(name):
+    return np.clip(255 - to_gray(base_image(name)), 0, 255).astype(int)
+
+
+def combine_gray_matrices(name_a, name_b, k_value):
+    matrix_a = character_gray_matrix(name_a).astype(float)
+    matrix_b = character_gray_matrix(name_b).astype(float)
+    result = k_value * matrix_a + (1 - k_value) * matrix_b
+    return matrix_a.astype(int), matrix_b.astype(int), np.clip(result, 0, 255).round().astype(int)
+
+
+def save_activity_result(index, summary, details=None):
+    st.session_state[f"i3_saved_{index}"] = summary
+    st.session_state[f"i3_saved_time_{index}"] = datetime.datetime.now().strftime("%H:%M:%S")
+    st.session_state[f"i3_saved_detail_{index}"] = details or {}
+
+
+def saved_status_text(index):
+    saved_time = st.session_state.get(f"i3_saved_time_{index}", "")
+    return f"저장 완료: {saved_time}" if saved_time else "아직 저장하지 않았습니다."
+
+
+def normalize_pdf_output(value):
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if isinstance(value, str):
+        return value.encode("latin1")
+    return bytes(value)
+
+
+def matrix_to_pdf_text(title, matrix):
+    arr = np.array(matrix).astype(int)
+    lines = [", ".join(str(int(value)) for value in row) for row in arr]
+    return f"{title}\n" + "\n".join(lines)
+
+
+def student_text_or_default(text, default="작성 내용 없음"):
+    value = str(text).strip() if text is not None else ""
+    return value if value else default
+
+
+def add_text_box_to_pdf(pdf, title, text, fill_color=(245, 245, 245)):
+    pdf.set_fill_color(*fill_color)
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(0, 7, title, ln=1, fill=True)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 6, student_text_or_default(text))
+    pdf.ln(1)
+
+
+def add_array_image_to_pdf(pdf, title, image, cmap=None):
+    tmp_path = None
+    fig = draw_image(np.array(image), title, cmap)
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            tmp_path = tmp.name
+        fig.savefig(tmp_path, format="png", dpi=180, bbox_inches="tight")
+        display_w = 85
+        display_h = 85
+        if pdf.get_y() + display_h > pdf.h - 20:
+            pdf.add_page()
+        y = pdf.get_y()
+        x = (pdf.w - display_w) / 2
+        pdf.image(tmp_path, x=x, y=y, w=display_w)
+        pdf.set_y(y + display_h + 3)
+        pdf.set_x(pdf.l_margin)
+    finally:
+        fig.clear()
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def pdf_body_text(title, body):
+    text = str(body)
+    if title == "문제 3. 가중 합성과 이미지 변화":
+        marker = " 최종 결과 행렬 C는 "
+        if marker in text:
+            text = text.split(marker, 1)[0].rstrip()
+    return text
+
+
+def pdf_detail_payload(title, details):
+    payload = {
+        "writings": list(details.get("writings", [])),
+        "matrices": list(details.get("matrices", [])),
+        "images": list(details.get("images", [])),
+    }
+
+    payload["images"] = [
+        item for item in payload["images"] if item[0] != "25×25 격자 실제 얼굴 이미지"
+    ]
+
+    if title == "문제 3. 가중 합성과 이미지 변화":
+        payload["matrices"] = []
+
+    return payload
+
+
+class ReportPDF(FPDF):
+    def header(self):
+        self.set_fill_color(25, 118, 210)
+        self.rect(0, 0, self.w, 20, "F")
+        self.set_xy(10, 5)
+        self.set_text_color(255, 255, 255)
+        self.set_font("Nanum", "", 16)
+        self.cell(0, 10, "F.U.T.U.R.E. 프로젝트 3차시 포트폴리오", ln=1, align="C")
+        self.set_text_color(33, 33, 33)
+        self.ln(10)
+
+
+def class_key_from_ids(*student_ids):
+    for student_id in student_ids:
+        value = str(student_id).strip()
+        if len(value) >= 3 and value[2] in PORT_URLS:
+            return value[2]
+    return ""
+
+
+def create_pdf(student, rows):
+    pdf = ReportPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_font("Nanum", "", FONT_PATH, uni=True)
+    pdf.set_font("Nanum", "", 11)
+    pdf.add_page()
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(
+        0,
+        7,
+        (
+            f"모둠명: {student['group']}\n"
+            f"학번: {student['id_1']}\n"
+            f"이름: {student['name_1']}\n"
+            f"활동 캐릭터: {student['character']}\n"
+            f"작성일: {datetime.datetime.now():%Y-%m-%d}"
+        ),
+    )
+    pdf.ln(2)
+    for row in rows:
+        title = row.get("title", "")
+        body = pdf_body_text(title, row.get("body", ""))
+        details = pdf_detail_payload(title, row.get("details", {}))
+        pdf.set_fill_color(227, 242, 253)
+        pdf.cell(0, 8, title, ln=1, fill=True)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 6, body)
+        for writing_title, writing_value in details.get("writings", []):
+            add_text_box_to_pdf(pdf, writing_title, writing_value)
+        for matrix_title, matrix_value in details.get("matrices", []):
+            pdf.set_font("Nanum", "", 9)
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(0, 5, matrix_to_pdf_text(matrix_title, matrix_value))
+            pdf.ln(1)
+            pdf.set_font("Nanum", "", 11)
+        for image_title, image_value, cmap in details.get("images", []):
+            add_array_image_to_pdf(pdf, image_title, image_value, cmap)
+        pdf.ln(1)
+    if any(str(text).strip() for _, text in social_image_prompt_entries()) or str(st.session_state.get("i3_generated_prompt", "")).strip():
+        pdf.set_fill_color(237, 231, 246)
+        pdf.cell(0, 8, "문제 4. 우리의 픽셀 아트 프롬프트", ln=1, fill=True)
+        for title, text in social_image_prompt_entries():
+            add_text_box_to_pdf(pdf, title, text)
+        add_text_box_to_pdf(pdf, "GPT 이미지 생성 프롬프트", st.session_state.get("i3_generated_prompt", ""))
+    return normalize_pdf_output(pdf.output(dest="S"))
+
+
+def practice_rows():
+    titles = [
+        "문제 1. 얼굴 인식과 변수 발견",
+        "문제 2. 이미지를 행렬로 표현하기",
+        "문제 3. 가중 합성과 이미지 변화",
+    ]
+    return [
+        {
+            "title": title,
+            "body": st.session_state.get(f"i3_saved_{idx}", "") or "아직 결과 저장 버튼을 누르지 않았습니다.",
+            "details": st.session_state.get(f"i3_saved_detail_{idx}", {}),
+        }
+        for idx, title in enumerate(titles, start=1)
+    ]
+
+
+def social_image_prompt_entries():
+    return [
+        ("선택한 주제", st.session_state.get("i3_social_topic", "")),
+        ("생각해 볼 질문", st.session_state.get("i3_social_question_prompt", "")),
+        ("이미지로 전하고 싶은 한마디", st.session_state.get("i3_social_image_thought", "")),
+        ("상징 1", st.session_state.get("i3_social_image_symbol_1", "")),
+        ("상징 2", st.session_state.get("i3_social_image_symbol_2", "")),
+    ]
+
+
+def build_social_image_prompt():
+    topic = student_text_or_default(
+        st.session_state.get("i3_social_topic", ""),
+        "사회적 주제를 먼저 선택해 주세요.",
+    )
+    question = student_text_or_default(
+        st.session_state.get("i3_social_question_prompt", ""),
+        "생각해 볼 질문을 먼저 적어 주세요.",
+    )
+    message = student_text_or_default(
+        st.session_state.get("i3_social_image_thought", ""),
+        "이미지로 전하고 싶은 한마디를 적어 주세요.",
+    )
+    symbol_1 = student_text_or_default(
+        st.session_state.get("i3_social_image_symbol_1", ""),
+        "첫 번째 상징을 적어 주세요.",
+    )
+    symbol_2 = student_text_or_default(
+        st.session_state.get("i3_social_image_symbol_2", ""),
+        "두 번째 상징을 적어 주세요.",
+    )
+    return (
+    "15×15 회색조 픽셀아트를 만들어줘.\n"
+    f"주제는 '{topic}'이고, 생각해 볼 질문은 \"{question}\"이다.\n"
+    f"이미지로 전하고 싶은 한마디는 \"{message}\"이다.\n"
+    f"반드시 '{symbol_1}'와 '{symbol_2}'를 포함해 줘.\n"
+    "작은 크기이므로 배경과 글씨는 넣지 말고, 상징이 바로 보이게 단순하게 구성해 줘.\n"
+    "색상은 0, 30, 60, 90, 120, 140, 160, 180, 200, 210, 220, 230, 255만 사용해 줘.\n"
+    f"출력은 1) 픽셀아트 이미지 2) 15×15 행렬 3) 생각해 볼 질문: {question} 4) 전하고 싶은 한마디: {message} 순서로 해 줘.\n"
+)
+
+
+def social_prompt_status_text():
+    prompt = str(st.session_state.get("i3_generated_prompt", "")).strip()
+    return "프롬프트 생성 완료" if prompt else "아직 작성하지 않았습니다."
+
+
+def run():
+    apply_local_style()
+    ensure_state()
+    page_banner(
+        "이미지를 행렬로 보는 인공지능",
+        "그림은 숫자 배열이고, 색 이미지는 RGB 세 행렬이며, 행렬 연산으로 그림이 변하고, 인공지능은 그 숫자 패턴을 읽는다는 핵심 흐름을 실습으로 익힙니다.",
+    )
+    st.markdown("<hr style='border:2px solid #2196F3;'>", unsafe_allow_html=True)
+
+    tabs = st.tabs(["1️⃣ [F.U] 문제 발견", "2️⃣ [T] 수학의 언어", "3️⃣ [U] AI 이해", "4️⃣ [R.E] 세상과 연결"])
+
+    with tabs[0]:
+        stage_intro(
+            "문제 발견",
+            "실생활 얼굴 인식 상황을 떠올리며, AI가 얼굴을 구별할 때 어떤 정보를 변수로 삼을지 짧게 가설을 세우는 도입 단계입니다.",
+            "AI는 얼굴을 어떻게 인식할까?",
+            "#e3f2fd",
+            "#bbdefb",
+        )
+        st.markdown(pretty_title("문제제기", "#e3f2fd", "#bbdefb"), unsafe_allow_html=True)
+        st.write(
+            "휴대폰 얼굴 인식은 사람의 얼굴을 읽어 같은 사람인지 구별합니다. "
+            "그런데 컴퓨터는 얼굴을 볼 때 무엇을 정보로 삼고 있을까요?"
+        )
+        with st.expander("행렬의 정의와 성분 표현 보기", expanded=False):
+            st.markdown(
+                """
+                행렬은 숫자를 가로와 세로로 줄 맞추어 놓은 직사각형 배열입니다.
+                한 칸에 들어 있는 숫자를 **성분**이라고 하고, `a(2,3)`처럼 행과 열의 위치로 나타낼 수 있습니다.
+                """
+            )
+            st.latex(r"A=\begin{bmatrix}79 & 41 \\ 57 & 22\end{bmatrix}, \quad a_{2,1}=57")
+
+        fu_face_image = face_grid_image(25)
+        fu_left, fu_right = st.columns([1, 1])
+        with fu_left:
+            st.pyplot(draw_image(fu_face_image, "25×25 격자 실제 얼굴 이미지", None), use_container_width=True)
+        with fu_right:
+            st.markdown("**이 얼굴을 작은 칸으로 나누면 무엇이 보일까?**")
+            st.markdown("**AI는 어떤 정보를 변수로 삼아 얼굴을 구별할까?**")
+            st.caption("생각나는 정보를 체크해 보고, 아래에 한 줄 가설을 적어 보세요.")
+
+            feature_cols = st.columns(3)
+            feature_options = [
+                ("위치", "i3_fu_feature_position"),
+                ("밝기", "i3_fu_feature_brightness"),
+                ("색", "i3_fu_feature_color"),
+                ("경계", "i3_fu_feature_edge"),
+                ("얼굴 부분의 차이", "i3_fu_feature_part"),
+            ]
+            selected_features = []
+            for idx, (label, key) in enumerate(feature_options):
+                with feature_cols[idx % 3]:
+                    if st.checkbox(label, key=key):
+                        selected_features.append(label)
+
+        hypothesis = st.text_input(
+            "짧은 가설 쓰기",
+            key="i3_hypothesis",
+            placeholder="예: AI는 얼굴의 위치와 밝기 차이를 보고 사람을 구별할 것 같다.",
+        )
+
+        if st.button("문제 1 결과 저장", key="i3_save_1"):
+            selected_text = ", ".join(selected_features) if selected_features else "위치, 밝기, 색, 경계, 얼굴 부분의 차이"
+            hypothesis_text = hypothesis.strip() or "가설 미작성"
+            save_activity_result(
+                1,
+                "탐구 질문은 “AI는 얼굴을 어떻게 인식할까?”였다. "
+                "나는 얼굴을 구별하는 데 필요한 정보와 변수를 생각해 보았다. "
+                f"AI가 이미지를 읽을 때 {selected_text}와 같은 정보를 사용할 수 있다고 가설을 세웠다. "
+                f"한 줄 가설은 “{hypothesis_text}”이다.",
+                details={
+                    "writings": [
+                        ("체크한 변수 후보", selected_text),
+                        ("짧은 가설 쓰기", hypothesis_text),
+                    ],
+                    "images": [("25×25 격자 실제 얼굴 이미지", fu_face_image, None)],
+                },
+            )
+        st.caption(saved_status_text(1))
+        st.caption("다음 [T] 단계에서는 작은 그림을 숫자 표로 바꾸며 이 생각을 더 구체적으로 확인합니다.")
+
+    with tabs[1]:
+        stage_intro(
+            "수학의 언어",
+            "현실의 대상을 수학의 언어로 표현하는 단계입니다. 이미지를 행과 열을 가진 수의 배열, 즉 행렬로 나타내며 그림과 숫자 표현의 대응을 살펴봅니다.",
+            "격자로 표현된 이미지를 어떻게 행렬로 나타낼까?",
+            "#fff8e1",
+            "#ffecb3",
+        )
+        
+        st.markdown(pretty_title("격자로 표현된 이미지를 어떻게 행렬로 나타낼까?", "#ede7f6", "#d1c4e9"), unsafe_allow_html=True)
+        st.write(
+            "이번에는 `계단`과 `체스판` 무늬 중 하나를 선택해, 왼쪽 행렬과 오른쪽 이미지를 함께 바꾸어 봅니다. "
+            "행렬의 한 칸은 이미지의 한 칸과 정확히 대응하므로, 숫자를 바꾸면 그림이 바뀌고 그림의 칸을 누르면 행렬도 함께 바뀝니다."
+        )
+        with st.expander("행렬의 연산 간단히 보기", expanded=False):
+            st.write(
+                "행렬의 합은 **같은 위치에 있는 수끼리** 더합니다. "
+                "예를 들어 왼쪽 위는 왼쪽 위끼리, 오른쪽 아래는 오른쪽 아래끼리 계산합니다. "
+                "실수배는 행렬의 **모든 칸에 같은 수를 곱하는 것**입니다."
+            )
+            st.latex(r"A=\begin{bmatrix}1 & 0 \\ 1 & 1\end{bmatrix},\quad B=\begin{bmatrix}0 & 1 \\ 1 & 0\end{bmatrix}")
+            st.latex(r"A+B=\begin{bmatrix}1+0 & 0+1 \\ 1+1 & 1+0\end{bmatrix}=\begin{bmatrix}1 & 1 \\ 2 & 1\end{bmatrix}")
+            st.latex(r"2A=\begin{bmatrix}2\times1 & 2\times0 \\ 2\times1 & 2\times1\end{bmatrix}=\begin{bmatrix}2 & 0 \\ 2 & 2\end{bmatrix}")
+            st.caption("즉, 행렬은 자리 바꾸어 계산하는 것이 아니라 같은 자리의 성분끼리 계산합니다.")
+
+        binary_shape = st.radio(
+            "기본 무늬 선택",
+            ["계단", "체스판"],
+            horizontal=True,
+            key="i3_binary_shape",
+        )
+        if st.session_state.get("i3_binary_shape_applied") != binary_shape:
+            set_binary_grid(BINARY_PATTERNS[binary_shape].copy(), refresh_editor=True)
+            st.session_state["i3_binary_shape_applied"] = binary_shape
+
+        current_grid = np.array(st.session_state["i3_binary_grid"], dtype=int)
+        editor_key = f"i3_t_binary_editor_{int(st.session_state.get('i3_binary_editor_version', 0))}"
+
+        activity_left, activity_right = st.columns([1.1, 0.9], gap="large")
+        with activity_left:
+            st.markdown(pretty_title("행렬에 0 또는 1 입력하기", "#fff8e1", "#ffecb3"), unsafe_allow_html=True)
+            input_matrix = st.data_editor(
+                binary_matrix_frame(current_grid),
+                key=editor_key,
+                hide_index=True,
+                use_container_width=True,
+                height=260,
+                num_rows="fixed",
+                column_config={
+                    col: st.column_config.NumberColumn(
+                        str(col),
+                        min_value=0,
+                        max_value=1,
+                        step=1,
+                        format="%d",
+                        width=42,
+                    )
+                    for col in range(1, current_grid.shape[1] + 1)
+                },
+            )
+            answer_matrix = sanitize_binary_frame(input_matrix)
+            if not np.array_equal(answer_matrix.values, current_grid):
+                set_binary_grid(answer_matrix.values.copy())
+            current_grid = np.array(st.session_state["i3_binary_grid"], dtype=int)
+
+        with activity_right:
+            st.markdown(pretty_title("오른쪽 표현 보기", "#e3f2fd", "#bbdefb"), unsafe_allow_html=True)
+            toggle_label = "행렬 숨기기" if st.session_state.get("i3_binary_show_values", False) else "행렬 보기"
+            if st.button(toggle_label, key="i3_binary_toggle_values", use_container_width=True):
+                st.session_state["i3_binary_show_values"] = not st.session_state.get("i3_binary_show_values", False)
+
+            st.pyplot(
+                draw_image(
+                    current_grid,
+                    f"{binary_shape} 무늬 이미지",
+                    "gray_r",
+                    show_values=st.session_state.get("i3_binary_show_values", False),
+                    value_range=(0, 1),
+                    fig_size=(5.0, 5.0),
+                    value_fontsize=15,
+                ),
+                use_container_width=True,
+            )
+            if st.session_state.get("i3_binary_show_values", False):
+                st.caption("이미지 위에 현재 행렬의 0,1 값이 함께 표시되어 같은 위치 성분을 바로 비교할 수 있습니다.")
             else:
-                st.warning("⚠️ 올바른 5자리 학번(예: 10101)을 입력해 주세요.")
+                st.caption("지금은 무늬 이미지만 보입니다. `행렬 보기` 버튼을 누르면 이미지 위에 0,1 값이 나타납니다.")
+
+        base_pattern = BINARY_PATTERNS[binary_shape]
+        if np.array_equal(current_grid, base_pattern):
+            st.success(f"현재 행렬은 기본 `{binary_shape}` 무늬와 같습니다.")
         else:
-            st.warning("⚠️ 학생 정보(모둠, 학번, 이름)와 교사의 딥 퀘스천 답변을 모두 작성해야 진행할 수 있습니다.")
+            st.info("행렬의 값을 바꾸면 오른쪽 표현도 바로 함께 바뀝니다. 지금은 기본 무늬를 직접 수정한 상태입니다.")
+
+        st.info(
+            "- 이미지는 행과 열을 가진 값의 배열로 표현될 수 있습니다.\n"
+            "- 따라서 이미지는 행렬로 나타낼 수 있습니다.\n"
+            "- AI도 이미지를 이런 수학적 표현으로 읽을 수 있습니다."
+        )
+
+        if st.button("문제 2 결과 저장", key="i3_save_2"):
+            save_activity_result(
+                2,
+                f"`{binary_shape}` 무늬를 0과 1로 이루어진 6×6 행렬로 표현하였다. 최종 행렬은 {binary_grid_text(current_grid)} 이다. "
+                "행렬의 값을 바꾸면 오른쪽 이미지와 행렬 표현도 함께 바뀌는 것을 확인하였다. "
+                "즉, 이미지는 행렬로 표현될 수 있음을 이해하였다.",
+                details={
+                    "matrices": [(f"{binary_shape} 6×6 이진 행렬", current_grid.copy())],
+                    "images": [(f"{binary_shape} 6×6 이미지", (current_grid * 255).astype(np.uint8), "gray_r")],
+                },
+            )
+        st.caption(saved_status_text(2))
+
+    with tabs[2]:
+        stage_intro(
+            "AI의 이해: 행렬 합성으로 이미지 변화 해석하기",
+            "두 이미지를 행렬 A, B로 두고 가중 합성 모델 C = kA + (1-k)B를 시뮬레이션하며, 이미지 변화가 행렬식과 어떻게 연결되는지 해석하는 단계입니다.",
+            "AI는 이미지를 어떻게 합성할까?",
+            "#e8f5e9",
+            "#c8e6c9",
+        )
+        st.markdown(pretty_title("행렬 합성으로 이미지 변화 살펴보기", "#ede7f6", "#d1c4e9"), unsafe_allow_html=True)
+        st.write(
+            "이번 활동은 AI의 이미지 처리 원리를 단순화한 행렬 합성 시뮬레이션입니다. "
+            "두 이미지를 행렬 A, 행렬 B로 두고 `C = kA + (1-k)B`를 적용해, k 값에 따라 결과 행렬 C와 결과 이미지가 어떻게 달라지는지 살펴봅니다."
+        )
+
+        choose_left, choose_right = st.columns(2)
+        with choose_left:
+            char_a = st.selectbox("행렬 A 캐릭터", list(CHARACTERS.keys()), key="i3_gray_char_a")
+        with choose_right:
+            char_b = st.selectbox("행렬 B 캐릭터", list(CHARACTERS.keys()), index=1, key="i3_gray_char_b")
+        blend_left, blend_right = st.columns([1, 1])
+        with blend_left:
+            st.markdown(pretty_title("k 값을 움직이며 합성해 보기", "#fff8e1", "#ffecb3"), unsafe_allow_html=True)
+            k_value = st.slider("k 값 (0 ≤ k ≤ 1)", 0.0, 1.0, 0.5, 0.1, key="i3_gray_k")
+        with blend_right:
+            st.markdown(pretty_title("합성 계산식", "#e3f2fd", "#bbdefb"), unsafe_allow_html=True)
+            st.latex(fr"C = {k_value:.1f}A + ({1-k_value:.1f})B")
+        matrix_a, matrix_b, matrix_result = combine_gray_matrices(char_a, char_b, k_value)
+        if "i3_gray_show_matrix" not in st.session_state:
+            st.session_state["i3_gray_show_matrix"] = False
+        toggle_label = "행렬 숨기기" if st.session_state["i3_gray_show_matrix"] else "행렬 보기"
+        formula_text = f"C = {k_value:.1f}A + ({1 - k_value:.1f})B"
+        with blend_right:
+            if st.button(toggle_label, key="i3_gray_toggle_matrix", use_container_width=True):
+                st.session_state["i3_gray_show_matrix"] = not st.session_state["i3_gray_show_matrix"]
+            if not st.session_state["i3_gray_show_matrix"]:
+                st.caption("버튼을 누르면 아래에 행렬 A, 행렬 B, 결과 행렬 C가 함께 보입니다.")
+
+        preview_cols = st.columns(3)
+        with preview_cols[0]:
+            st.pyplot(draw_image(matrix_a, f"{char_a} → 행렬 A", "gray_r"), use_container_width=True)
+            if st.session_state["i3_gray_show_matrix"]:
+                st.dataframe(df_from(matrix_a), use_container_width=True, height=320)
+        with preview_cols[1]:
+            st.pyplot(draw_image(matrix_b, f"{char_b} → 행렬 B", "gray_r"), use_container_width=True)
+            if st.session_state["i3_gray_show_matrix"]:
+                st.dataframe(df_from(matrix_b), use_container_width=True, height=320)
+        with preview_cols[2]:
+            st.pyplot(draw_image(matrix_result, "결과 행렬 C", "gray_r"), use_container_width=True)
+            if st.session_state["i3_gray_show_matrix"]:
+                st.dataframe(df_from(matrix_result), use_container_width=True, height=320)
+
+        st.markdown(pretty_title(" 1️⃣ 모둠활동: k = 1일 때 어떤 캐릭터가 남을까?", "#f1f8e9", "#c5e1a5"), unsafe_allow_html=True)
+        st.markdown("**k = 1일 때 결과 이미지는 어떤 행렬과 같아지는지, 식 `C = kA + (1-k)B`를 이용해 설명해 보자.**")
+        blank_answer = st.text_input("k = 1일 때 남는 이미지 또는 행렬 정리", key="i3_gray_blank_answer", placeholder=f"예: 마리오")
+        math_principle = st.text_area(
+            "수학적 설명 쓰기",
+            key="i3_gray_math_principle",
+            height=100,
+            placeholder="C = kA + (1-k)B",
+        )
+        if st.button("모둠 해석 확인하기", key="i3_gray_blank_check", use_container_width=True):
+            cleaned_answer = str(blank_answer).strip().replace(" ", "")
+            cleaned_corrects = [str(char_a).strip().replace(" ", ""), "행렬A", "A"]
+            if cleaned_answer in cleaned_corrects:
+                st.success(f"좋아요. k = 1이면 `C = 1A + 0B = A` 이므로 결과는 행렬 A와 같고, `{char_a}` 이미지만 남습니다.")
+            else:
+                st.warning("핵심은 `C = 1A + 0B = A` 입니다. 이 식을 이용해 왜 결과가 행렬 A와 같아지는지 다시 설명해 보세요.")
+                st.info(f"정리 예시: `{char_a}` 이미지, 즉 행렬 A")
+
+        if st.button("합성된 이미지 및 행렬 저장", key="i3_save_3"):
+            save_activity_result(
+                3,
+                f"두 이미지를 행렬 A, B로 두고 가중 합성 모델을 시뮬레이션하였다. "
+                f"사용한 식은 {formula_text} 이다. "
+                f"k 값에 따라 결과 이미지와 결과 행렬 C가 달라짐을 확인하였다. "
+                f"k = 1일 때 C = 1A + 0B = A가 됨을 '{math_principle.strip() or '설명 미작성'}'으로 설명하였다. "
+                f"이를 통해 이미지 변화가 행렬식과 대응됨을 이해하였다. "
+                f"모둠이 정리한 남는 이미지 또는 행렬은 '{blank_answer.strip() or '답 미작성'}'이다. "
+                f"최종 결과 행렬 C는 {matrix_text(matrix_result)} 이다.",
+                details={
+                    "writings": [
+                        ("k = 1일 때 남는 이미지 또는 행렬", blank_answer.strip()),
+                        ("수학적 설명 쓰기", math_principle.strip()),
+                    ],
+                    "matrices": [
+                        (f"{char_a} 행렬 A", matrix_a.copy()),
+                        (f"{char_b} 행렬 B", matrix_b.copy()),
+                        ("결과 행렬 C", matrix_result.copy()),
+                    ],
+                    "images": [("결과 이미지 C", matrix_result.copy(), "gray_r")],
+                },
+            )
+        st.caption(saved_status_text(3))
+    with tabs[3]:
+        stage_intro(
+            "R.E: 우리의 삶과 사회로 연결하기",
+            "앞 단계에서 배운 행렬 표현을 바탕으로, 사회적 메시지를 담은 15×15 픽셀아트 프롬프트를 직접 만드는 단계입니다.",
+            "사회적 메시지를 담은 이미지를 행렬 기반 픽셀아트로 어떻게 표현할 수 있을까?",
+            "#fff3e0",
+            "#ffe0b2",
+        )
+        st.markdown(pretty_title("1️⃣ 학생 정보 입력 및 포트폴리오 저장", "#e3f2fd", "#bbdefb"), unsafe_allow_html=True)
+        st.info("모둠 이름과 학생 정보를 먼저 입력하면, 앞 단계에서 저장한 활동 결과를 바로 PDF 포트폴리오로 받을 수 있습니다.")
+        group_name = st.text_input("모둠 이름", key="i3_group")
+
+        info_cols = st.columns(2)
+        with info_cols[0]:
+            stu_id_1 = st.text_input("학번", max_chars=5, key="i3_id_1")
+        with info_cols[1]:
+            stu_name_1 = st.text_input("이름", key="i3_name_1")
+
+        class_key = class_key_from_ids(stu_id_1)
+        if group_name and stu_id_1 and stu_name_1:
+            pdf = create_pdf(
+                {
+                    "group": group_name,
+                    "id_1": stu_id_1,
+                    "name_1": stu_name_1,
+                    "character": current_character(),
+                },
+                practice_rows(),
+            )
+            p1, p2 = st.columns(2)
+            with p1:
+                st.download_button(
+                    "📄 이미지 탐구 포트폴리오 PDF 다운로드",
+                    pdf,
+                    f"{group_name}_{stu_name_1}_3차시_이미지포트폴리오.pdf",
+                    "application/pdf",
+                    use_container_width=True,
+                )
+            with p2:
+                port_url = PORT_URLS.get(class_key)
+                if port_url:
+                    st.markdown(f"""<a href="{port_url}" target="_blank" style="display:block;padding:10px;background:linear-gradient(90deg,#43a047 0%,#66bb6a 100%);color:white;text-decoration:none;border-radius:8px;font-weight:bold;text-align:center;">{class_key}반 포트폴리오 패들렛 바로가기</a>""", unsafe_allow_html=True)
+                else:
+                    st.info("학번의 세 번째 숫자가 1, 2, 5, 6 중 하나이면 반별 패들렛 버튼이 나타납니다.")
+        else:
+            st.warning("모둠 이름과 학번, 이름을 입력하면 포트폴리오를 바로 받을 수 있습니다.")
 
         st.markdown("---")
-        
-        st.markdown("#### 📌 3. 모둠 성찰 질문 만들기 (질문 패들렛 공유용)")
-        st.write("모둠원과 함께 오늘 활동을 돌아보며 3가지 질문을 완성하고, 결과를 패들렛에 공유해 봅시다.")
-        
-        q1 = st.text_area("📖 [사실적 질문] 데이터(n)가 조금만 늘어나도 팩토리얼(n!)과 경우의 수가 기하급수적으로 증가하는 현상을 무엇이라고 부르나요?", height=100, key="d3_q1_ans")
-        q2 = st.text_area("🧩 [개념적 질문] 모든 경우를 탐색하는 무차별 대입(Brute-Force) 방식과 비교할 때, AI의 가지치기(Pruning)나 탐욕(Greedy) 알고리즘은 어떤 장단점이 있을까요?", height=100, key="d3_q2_ans")
-        q3 = st.text_area("🔥 [논쟁적/딥 퀘스천] 만약 완벽한 정답을 보장하지 않지만 매우 빠른 AI(휴리스틱)와, 100년이 걸리지만 100% 정답을 찾는 시스템 중 의료/국방 분야에서는 어떤 알고리즘을 채택해야 할까요?", height=100, key="d3_q3_ans")
+        st.markdown(pretty_title("2️⃣ 모둠활동: 사회적 메시지 픽셀아트 프롬프트 만들기", "#ede7f6", "#d1c4e9"), unsafe_allow_html=True)
+        st.info(
+            "이제 모둠별로 1개의 픽셀아트 프롬프트를 기획해 봅시다. 먼저 주제를 고르고, 그 주제 안에서 깊은 질문과 사회적 메시지를 정한 뒤, "
+            "이미지에 꼭 들어갈 상징 2개를 정리하면 프롬프트 만들기 버튼으로 바로 사용할 문장을 만들 수 있습니다. "
+            "15×15 픽셀아트는 매우 작은 이미지이므로, 많은 내용을 넣기보다 하나의 핵심 메시지가 선명하게 보이도록 단순하게 표현하는 것이 중요합니다."
+        )
 
-        if group_name and stu_id and q1 and q2 and q3:
-            if len(stu_id) >= 3 and stu_id[2] in ["1", "2", "5", "6"]:
-                class_num = stu_id[2]
-                st.success("✨ 성찰 질문 작성이 완료되었습니다! 텍스트를 복사하여 패들렛에 업로드하세요.")
-                report_text = f"""[F.U.T.U.R.E. 프로젝트 3DAY 성찰 일지] (👉 게시물 제목)
-모둠명: {group_name}
-1. 📖 [사실적 질문]
-{q1}
-2. 🧩 [개념적 질문]
-{q2}
-3. 🔥 [논쟁적/딥 퀘스천] 
-{q3}
-"""
-                st.code(report_text, language="markdown")
+        st.markdown(pretty_title("1단계:주제 선택", "#f4f9ff", "#dbeafe"), unsafe_allow_html=True)
+        topic_choice = st.radio(
+            "우리 모둠이 표현할 사회적 주제",
+            ["환경과 기후", "안전과 기술", "다양성과 존중"],
+            key="i3_social_topic",
+            horizontal=True,
+        )
+        topic_guides = {
+            "환경과 기후": "예: 쓰레기 문제, 기후 위기, 물과 숲을 지키는 행동",
+            "안전과 기술": "예: AI 오분류, 개인정보 보호, 기술 사용에서의 사람 확인",
+            "다양성과 존중": "예: 차별 반대, 서로의 다름 존중, 함께 살아가기",
+        }
+        st.caption(f"주제 안내: {topic_guides[topic_choice]}")
 
-                qa_urls = {
-                    "1": "https://padlet.com/ps0andd/q_1",
-                    "2": "https://padlet.com/ps0andd/q_2",
-                    "5": "https://padlet.com/ps0andd/q_5",
-                    "6": "https://padlet.com/ps0andd/q_6",
-                }
-                padlet_qa_url = qa_urls.get(class_num, "https://padlet.com/")
+        st.markdown(pretty_title("2단계: 질문과 메시지 정리", "#fff8e1", "#ffecb3"), unsafe_allow_html=True)
+        question_cols = st.columns(2)
+        with question_cols[0]:
+            st.text_area(
+                "깊은 질문(D.E.E.P Question)",
+                key="i3_social_question_prompt",
+                height=110,
+                placeholder="예: 길가에 쓰레기가 많아지면 우리 동네 사람들은 어떤 불편을 겪게 될까?",
+            )
+        with question_cols[1]:
+            st.text_area(
+                "사회적 메시지",
+                key="i3_social_image_thought",
+                height=110,
+                placeholder="예: 쓰레기를 아무 데나 버리지 말고, 우리 동네를 함께 깨끗하게 지키자.",
+            )
+        symbol_cols = st.columns(2)
+        with symbol_cols[0]:
+            st.text_input(
+                "상징 1",
+                key="i3_social_image_symbol_1",
+                placeholder="예: 길가버려진 컵",
+            )
+        with symbol_cols[1]:
+            st.text_input(
+                "상징 2",
+                key="i3_social_image_symbol_2",
+                placeholder="예: 쓰레기통",
+            )
+        st.caption("상징은 2개 정도만 넣는 것이 좋습니다. 15×15 픽셀아트에서는 복잡한 배경보다 핵심 장면이 먼저 보여야 합니다.")
 
-                st.info(f"📤 **[미션 2]** 복사한 성찰 일지를 아래 '{class_num}반 질문(Q&A) 패들렛'에 업로드하고, 친구 글에 댓글을 달아주세요!")
+        st.markdown(pretty_title("3단계:프롬프트 만들기", "#e8f5e9", "#c8e6c9"), unsafe_allow_html=True)
+        if st.button("프롬프트 만들기", key="i3_make_social_prompt", use_container_width=True):
+            st.session_state["i3_generated_prompt"] = build_social_image_prompt()
+        generated_prompt = st.session_state.get("i3_generated_prompt", "")
+        if generated_prompt:
+            st.code(generated_prompt, language="markdown")
+            st.caption("입력 내용을 바꾸었다면 버튼을 다시 눌러 새 프롬프트를 만들어 주세요.")
+            gallery_url = GALLERY_URLS.get(class_key)
+            if gallery_url:
                 st.markdown(
-                    f"""<a href="{padlet_qa_url}" target="_blank" 
-                        style="display: inline-block; padding: 10px 20px; background: linear-gradient(90deg, #1976d2 0%, #42a5f5 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-top: 5px;">
-                        🚀 {class_num}반 질문(Q&A) 패들렛으로 이동하기
-                    </a>""", unsafe_allow_html=True
+                    f"""<a href="{gallery_url}" target="_blank" style="display:block;padding:11px;background:linear-gradient(90deg,#7e57c2 0%,#42a5f5 100%);color:white;text-decoration:none;border-radius:8px;font-weight:bold;text-align:center;margin-top:8px;">{class_key}반 갤러리 패들렛 바로가기</a>""",
+                    unsafe_allow_html=True,
                 )
             else:
-                pass 
+                st.info("학생 정보의 학번을 입력하면 우리 반 갤러리 패들렛 바로가기 버튼이 나타납니다.")
         else:
-            st.warning("⚠️ 학생 정보(모둠, 학번 등)와 3가지 모둠 성찰 질문을 모두 작성해야 합니다.") 
+            st.info("주제, 질문, 메시지, 상징 2개를 정리한 뒤 프롬프트 만들기 버튼을 눌러 보세요.")
 
-    st.markdown("<hr style='border: 2px solid #2196F3;'>", unsafe_allow_html=True) 
+        st.session_state["i3_saved_4"] = (
+            f"주제는 '{topic_choice}'였고, 사회적 메시지를 담은 15×15 픽셀아트 프롬프트를 구상했다."
+        )
+        st.session_state["i3_saved_detail_4"] = {
+            "writings": social_image_prompt_entries() + [("GPT 이미지 생성 프롬프트", generated_prompt)]
+        }
+    st.markdown("<hr style='border:2px solid #2196F3;'>", unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     run()
